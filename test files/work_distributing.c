@@ -1,3 +1,7 @@
+// @Yudi Aditya
+// Github   : aditya1453
+// Program  : Work Distributing
+
 #include<stdio.h>
 #include<mpi.h>
 #include<math.h>
