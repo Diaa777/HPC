@@ -17,6 +17,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include <mpi.h>
+#include <unistd.h>
 
 // Structure to store image.
 struct imagenppm{
@@ -432,7 +433,7 @@ int main(int argc, char **argv)
                          - send result
     */
 
-    int rem_job, job, jobs[size]; 
+    int rem_job, job, pixel; 
     // Alocating Memory 
     ImagenData partImgIn =NULL;
     ImagenData partImgOut=NULL; 
@@ -494,47 +495,37 @@ int main(int argc, char **argv)
             // Distributing the Chunk Image to Slaves
             ///////////////////////////////////////////////////////////////////////////
 
+            printf("Image Height : %d\n", source->altura);
+            printf("Image Width  : %d\n", source->ancho);
             
-            // printf("Image Height : %d\n", source->altura);
-            // printf("Distribution job part %d (Total job %d)\n", c+1, source->altura/partitions);
-            
-            // Creating Job Distribution
+            // // Creating Job Distribution
             job       = source->altura/(size*partitions); // altura -> height
             rem_job   = (source->altura/partitions)%size;
-            for (i=0;i<size;i++){
-                jobs[i] = job;
-                if (i==0) jobs[i] = job+rem_job;
-                printf("proc %d get %d jobs\n", i, jobs[i]);
-            }
-
-            // Broadcast Job to other slaves
-            MPI_Bcast(&jobs, size, MPI_INT, 0, MPI_COMM_WORLD);
             
-            // Send Job to Slaves
-            for (i=2;i<3;i++){
-                // Alocating Memory
-                partImgIn =(ImagenData) malloc(sizeof(struct imagenppm));
-                partImgIn->R=calloc(jobs[i],sizeof(int));
-                
-                // Copy Part Image
-                for (j=0;j<jobs[i];j++){
-                    // if (j==0) printf("copy job for (%d) send from idx %d", i, i*job+j+rem_job);
-                    partImgIn->R[j] = source->R[i*job+j+rem_job];
-                    // if (j==jobs[i]-1) printf("%d", i*job+j+rem_job);
-                }
+            int *ptrR = NULL, *ptrG = NULL, *ptrB = NULL;
+            pixel = job * source->ancho;
 
-                // print image copy                
-                for (j = 0; j<80;j++){
-                    printf("%d  ", partImgIn->R[j]);
-                    if ((j+1)%20==0) printf("\n");
-                }
-                printf("\n");
-                
+            // Broadcast number of pixel to other slaves
+            MPI_Bcast(&pixel, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-                // Send Part Image
-                MPI_Send(&(partImgIn->R), jobs[i], MPI_INT, 2, 0, MPI_COMM_WORLD);
-                // MPI_Send(&partImgIn->altura, 1, MPI_INT, i, 1, MPI_COMM_WORLD);
-            } 
+            ptrR = source->R;  ptrR += rem_job;
+            ptrG = source->G;  ptrG += rem_job;
+            ptrB = source->B;  ptrB += rem_job;
+
+
+            // Send chunk of Image to slaves
+            for (int dest=1;dest<size;dest++){
+                
+                // Sending chunk of Image
+                MPI_Send(ptrR, pixel, MPI_INT, dest, 0, MPI_COMM_WORLD);
+                MPI_Send(ptrG, pixel, MPI_INT, dest, 0, MPI_COMM_WORLD);
+                MPI_Send(ptrB, pixel, MPI_INT, dest, 0, MPI_COMM_WORLD);
+                
+                // updating the pointer
+                ptrR += pixel;
+                ptrG += pixel;
+                ptrB += pixel; 
+            }
 
             //////////////////////////////////////////////////////////////////////////////////////////////////
             // CHUNK CONVOLUTION
@@ -569,24 +560,28 @@ int main(int argc, char **argv)
             c++;
         }
     
-    } else if (rank==2){ // Slaves
+    } else{ // Slaves
         // Receive number of jobs from Master
-        MPI_Bcast(&jobs, size, MPI_INT, 0, MPI_COMM_WORLD);
-        printf("Number of jobs : %d\n", jobs[rank]);
+        MPI_Bcast(&pixel, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        // printf("Number of pixel : %d\n", pixel);
 
         // Alocating Memory
         partImgIn =(ImagenData) malloc(sizeof(struct imagenppm));
-        partImgIn->R=calloc(jobs[rank],sizeof(int)); 
+        partImgIn->R=calloc(pixel,sizeof(int)); 
+        partImgIn->G=calloc(pixel,sizeof(int)); 
+        partImgIn->B=calloc(pixel,sizeof(int)); 
         
-          
-        MPI_Recv(&(partImgIn->R), jobs[rank], MPI_INT, 0, 0, MPI_COMM_WORLD, &status);
-        
+        // Receiving Chunk Image From Master
+        MPI_Recv(partImgIn->R, pixel, MPI_INT, 0, 0, MPI_COMM_WORLD, &status);
+        MPI_Recv(partImgIn->G, pixel, MPI_INT, 0, 0, MPI_COMM_WORLD, &status);
+        MPI_Recv(partImgIn->B, pixel, MPI_INT, 0, 0, MPI_COMM_WORLD, &status);
+
+
         // print image copy                
-        for (j = 0; j<80;j++){
-            printf("%d  ", partImgIn->R[j]);
+        for (j = 20; j<50;j++){
+            printf("proc(%d) : partImgIn[%d] = %d \n",rank, j, partImgIn->R[j]);
             if ((j+1)%20==0) printf("\n");
         }
-        printf("\n");
         
     }
 
